@@ -1,0 +1,13 @@
+date: The date of the stock data.
+
+open: The opening price of NVIDIA stock on the given date.
+
+high: The highest price of NVIDIA stock during the trading day.
+
+low: The lowest price of NVIDIA stock during the trading day.
+
+close: The closing price of NVIDIA stock on the given date.
+
+adjclose: The adjusted closing price of NVIDIA stock, accounting for any corporate actions such as dividends or stock splits.
+
+volume: The trading volume of NVIDIA stock on the given date.
