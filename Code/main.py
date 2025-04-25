@@ -1,27 +1,44 @@
-'''
-author:        Schuyn <98257102+Schuyn@users.noreply.github.com>
-date:          2025-04-24 14:39:08
-'''
-from DataPreprossessing import load_data, process_timestamp
-import pandas as pd
-
-def save_processed_data(df, output_path):
-    df.to_csv(output_path, index=False)
-    print(f"Data saved to {output_path}")
+# main.py
+import os
+from torch.utils.data import DataLoader
+# 如果类名是 DatasetTrain，请用下面这一行；如果是 Dataset_train，请把名字改成 Dataset_train
+from DataPreprossessing import Dataset_train  
 
 def main():
-    # Step 1: Load data
-    raw_data_path = './Data/nvidia_stock_2015_to_2024.csv'
-    df = load_data(raw_data_path)
-    
-    # Step 2: Timestamp processing
-    df = process_timestamp(df, timestamp_col='date')
-    
-    # You can add more preprocessing here
-    
-    # Step 3: Save processed data
-    processed_data_path = './Data/processed_data.csv'
-    save_processed_data(df, processed_data_path)
+    # 1. 定位到 Data 文件夹
+    code_dir = os.path.dirname(__file__)                                # .../Code
+    data_dir = os.path.abspath(os.path.join(code_dir, os.pardir, 'Data'))  # .../Data
 
-if __name__ == "__main__":
+    # 2. 指定 CSV 文件名
+    csv_file = 'nvidia_stock_2015_to_2024.csv'
+
+    # 3. 创建 Dataset
+    dataset = Dataset_train(
+        root_path=data_dir,        # 目录到 Data 文件夹
+        data_path=csv_file,        # 只写文件名
+        size=[84, 21, 21],         # seq_len, label_len, pred_len
+        features='MS',             # 多元时序
+        target='close',            # 以哪一列作为预测目标
+        scale=True,                # 是否做 StandardScaler
+        timeenc=1,                 # 时间编码方式
+        freq='d'                   # 日频
+    )
+
+    # 4. 用 DataLoader 打包
+    loader = DataLoader(
+        dataset,
+        batch_size=32,
+        shuffle=True,
+        drop_last=True
+    )
+
+    # 5. 示范取一个 batch
+    for seq_x, seq_y, seq_x_mark, seq_y_mark in loader:
+        print("输入 X 形状：", seq_x.shape)         # [B, seq_len, D]
+        print("标签 Y 形状：", seq_y.shape)         # [B, label_len+pred_len, D]
+        print("X 的时间特征：", seq_x_mark.shape)   # [B, seq_len, T]
+        print("Y 的时间特征：", seq_y_mark.shape)   # [B, label_len+pred_len, T]
+        break
+
+if __name__ == '__main__':
     main()
