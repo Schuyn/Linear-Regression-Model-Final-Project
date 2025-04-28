@@ -53,6 +53,7 @@ class Dataset_train(Dataset):
         # Load and sort
         file_full = os.path.join(self.root_path, self.data_path)
         df = pd.read_csv(file_full, parse_dates=['date'])
+        # Ensure 'date' is in datetime format
         df.sort_values('date', inplace=True)
 
         # Select features and target columns
