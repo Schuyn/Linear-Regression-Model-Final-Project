@@ -34,10 +34,10 @@ def main():
 
     # 5. 示范取一个 batch
     for seq_x, seq_y, seq_x_mark, seq_y_mark in loader:
-        print("输入 X 形状：", seq_x.shape)         # [B, seq_len, D]
-        print("标签 Y 形状：", seq_y.shape)         # [B, label_len+pred_len, D]
-        print("X 的时间特征：", seq_x_mark.shape)   # [B, seq_len, T]
-        print("Y 的时间特征：", seq_y_mark.shape)   # [B, label_len+pred_len, T]
+        print("x shape: ", seq_x.shape)         # [B, seq_len, D]
+        print("y shape:", seq_y.shape)         # [B, label_len+pred_len, D]
+        print("X time features:", seq_x_mark.shape)   # [B, seq_len, T]
+        print("Y time features:", seq_y_mark.shape)   # [B, label_len+pred_len, T]
         break
 
 if __name__ == '__main__':
