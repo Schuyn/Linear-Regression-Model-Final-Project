@@ -56,17 +56,17 @@ class Dataset_train(Dataset):
         self._read_data()
 
     def _read_data(self):
-        # 1) Load and sort
+        # Load and sort
         file_full = os.path.join(self.root_path, self.data_path)
         df = pd.read_csv(file_full, parse_dates=['date'])
         df.sort_values('date', inplace=True)
         n = len(df)
 
-        # 2) Determine split indices
+        # Determine split indices
         train_end = int(n * self.train_ratio)
         val_end = int(n * (self.train_ratio + self.val_ratio))
 
-        # 3) Determine feature columns (consistent across splits)
+        #Determine feature columns (consistent across splits)
         if self.cols:
             selected = list(self.cols)
             if self.target in selected:
@@ -78,7 +78,7 @@ class Dataset_train(Dataset):
         else:
             data_cols = [self.target]
 
-        # 4) Fit scaler on training portion only
+        # Fit scaler on training portion only
         if self.scale:
             train_df = df.iloc[:train_end]
             self.scaler = StandardScaler()
@@ -86,7 +86,7 @@ class Dataset_train(Dataset):
         else:
             self.scaler = None
 
-        # 5) Slice df according to split
+        # Slice df according to split
         if self.split == 'train':
             df_split = df.iloc[:train_end]
         elif self.split == 'val':
@@ -94,13 +94,13 @@ class Dataset_train(Dataset):
         else:
             df_split = df.iloc[val_end:]
 
-        # 6) Extract and scale data
+        # Extract and scale data
         values = df_split[data_cols].values
         if self.scale:
             values = self.scaler.transform(values)
         self.data = values
 
-        # 7) Time features
+        # Time features
         df_stamp = df_split[['date']]
         self.data_stamp = time_features(df_stamp, timeenc=self.timeenc, freq=self.freq)
 
@@ -154,17 +154,17 @@ class Dataset_prediction(Dataset):
         self._read_data()
 
     def _read_data(self):
-        # 1) Load and sort
+        # Load and sort
         file_full = os.path.join(self.root_path, self.data_path)
         df = pd.read_csv(file_full, parse_dates=['date'])
         df.sort_values('date', inplace=True)
         n = len(df)
 
-        # 2) Determine split index for scaler fit
+        # Determine split index for scaler fit
         train_end = int(n * self.train_ratio)
         val_end = int(n * (self.train_ratio + self.val_ratio))
 
-        # 3) Determine feature columns
+        # Determine feature columns
         if self.cols:
             selected = list(self.cols)
             if self.target in selected:
@@ -176,21 +176,21 @@ class Dataset_prediction(Dataset):
         else:
             data_cols = [self.target]
 
-        # 4) Fit scaler on training portion only
+        # Fit scaler on training portion only
         if self.scale:
-            train_df = df.iloc[:train_end]
+            train_df = df.iloc[:val_end]
             self.scaler = StandardScaler()
             self.scaler.fit(train_df[data_cols].values)
         else:
             self.scaler = None
 
-        # 5) Transform full series
+        # Transform full series
         values = df[data_cols].values
         if self.scale:
             values = self.scaler.transform(values)
         self.data = values
 
-        # 6) Time features
+        # Time features
         self.df_stamp = df['date'].reset_index(drop=True)
         self.data_stamp = time_features(df[['date']], timeenc=self.timeenc, freq=self.freq)
 
@@ -204,8 +204,9 @@ class Dataset_prediction(Dataset):
         seq_x_mark = self.data_stamp[s_begin:]
         # Decoder input: last label_len history + zeros for pred_len
         hist = self.data[-self.label_len:]
-        zeros = np.zeros((self.pred_len, self.data.shape[1]), dtype=self.data.dtype)
-        seq_y = np.vstack([hist, zeros])
+        last_val = self.data[-1:]
+        future_vals = np.repeat(last_val, self.pred_len, axis=0)
+        seq_y = np.vstack([hist, future_vals])
         hist_dates = list(self.df_stamp.iloc[-self.label_len:].values)
         last_date = self.df_stamp.iloc[-1]
         future_dates = pd.date_range(last_date, periods=self.pred_len+1, freq=self.freq.upper())[1:]
@@ -215,16 +216,12 @@ class Dataset_prediction(Dataset):
         return seq_x, seq_y, seq_x_mark, seq_y_mark
 
     def inverse_transform(self, data: np.ndarray) -> np.ndarray:
-        """
-        Inverse transform predictions or true values back to original scale.
-        `data` shape should be (N, D) or (N,)
-        """
         if self.scale and self.scaler is not None:
-            # if data is 1D, reshape
-            arr = data if data.ndim>1 else data.reshape(-1,1)
-            full = np.zeros((arr.shape[0], len(self.scaler.scale_)))
-            # assume target is last column
-            full[:, -1] = arr[:, -1] if arr.shape[1]>1 else arr.flatten()
+            arr = data if data.ndim > 1 else data.reshape(-1,1)
+            # 使用 scaler 的均值来填充其他列，防止0影响逆变换
+            full = np.tile(self.scaler.mean_, (arr.shape[0], 1))
+            full[:, -1] = arr[:, -1] if arr.shape[1] > 1 else arr.flatten()
             inv = self.scaler.inverse_transform(full)
             return inv[:, -1]
         return data
+
