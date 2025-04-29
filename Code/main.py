@@ -47,9 +47,9 @@ def main():
     params = list(embed.parameters()) + list(encoder.parameters()) + list(decoder.parameters())
     optimizer = torch.optim.Adam(params, lr=1e-4)
     # 每个 epoch lr 缩半
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.96)
     criterion = nn.MSELoss()
-    epochs = 8
+    epochs = 80
     early_stop_patience = 3
 
     # 日志
