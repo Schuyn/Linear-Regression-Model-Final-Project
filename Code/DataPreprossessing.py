@@ -36,7 +36,11 @@ class Dataset_train(Dataset):
         scale=True,
         timeenc=1,
         freq='d',
-        cols=None
+        cols=None,
+        split='train',           # 新增：'train'|'val'|'test'
+        train_ratio=0.6,         # 前 60% 做训练
+        val_ratio=0.2,           # 接着 20% 做验证
+        # 剩下 20% 自动做测试
     ):
         self.root_path = root_path
         self.data_path = data_path
@@ -47,6 +51,9 @@ class Dataset_train(Dataset):
         self.timeenc = timeenc
         self.freq = freq
         self.cols = cols
+        self.split = split
+        self.train_ratio = train_ratio
+        self.val_ratio   = val_ratio
         self._read_data()
 
     def _read_data(self):
@@ -55,7 +62,17 @@ class Dataset_train(Dataset):
         df = pd.read_csv(file_full, parse_dates=['date'])
         # Ensure 'date' is in datetime format
         df.sort_values('date', inplace=True)
-
+        n = len(df)
+        # 根据 split 切 DataFrame
+        train_end = int(n * self.train_ratio)
+        val_end   = int(n * (self.train_ratio + self.val_ratio))
+        if self.split == 'train':
+            df = df.iloc[:train_end]
+        elif self.split == 'val':
+            df = df.iloc[train_end:val_end]
+        else:  # test
+            df = df.iloc[val_end:]
+            
         # Select features and target columns
         if self.cols:
             selected = self.cols.copy()
@@ -119,7 +136,7 @@ class Dataset_prediction(Dataset):
         scale=True,
         timeenc=1,
         freq='d',
-        cols=None
+        cols=None, 
     ):
         self.root_path = root_path
         self.data_path = data_path
@@ -133,7 +150,6 @@ class Dataset_prediction(Dataset):
         self._read_data()
 
     def _read_data(self):
-        import pandas as pd
 
         file_full = os.path.join(self.root_path, self.data_path)
         df = pd.read_csv(file_full, parse_dates=['date'])
