@@ -102,7 +102,7 @@ class SimpleDecoder(nn.Module):
             nn.Linear(d_model, d_model // 2),
             nn.ReLU(),
             nn.Linear(d_model // 2, 1),
-            nn.Sigmoid()          # ➜ 输出∈[0,1]
+            nn.Tanh()          # ➜ 输出∈[0,1]
         )
         nn.init.constant_(self.proj[2].bias, 0.8)   # 最后一层 Linear 的 bias
 
@@ -134,11 +134,11 @@ class SimpleDecoder(nn.Module):
             x2 = layer['ff'](x)
             x = layer['norm2'](x + self.dropout(x2))
         # Project to scalar predictions
-        out_raw = self.proj(x).squeeze(-1)          # (B, pred_len) ∈ [0,1]
+        out_raw = 0.6* (self.proj(x).squeeze(-1)+1)          # (B, pred_len) ∈ [0,1]
         # 取 Encoder 最后一个时间步 target 作为基准（已是 scaled 值）
         last_scaled = enc_out[:, -1, -1]            # shape (B,)
 
         # 预测“增量”再加回基准
         pred_scaled = out_raw + last_scaled.unsqueeze(-1)
 
-        return pred_scaled
+        return pred_scaled  

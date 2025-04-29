@@ -8,13 +8,14 @@ from DataPreprossessing import Dataset_train, Dataset_prediction
 from embed import SimpleEmbedding
 from Encoder import EncoderStack
 from Decoder import SimpleDecoder
+from Prediction import predict_and_plot
 
 def main():
     # 环境配置及路径
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     base_dir = os.path.dirname(__file__)
     data_dir = os.path.abspath(os.path.join(base_dir, os.pardir, 'Data'))
-    csv_file = 'nvidia_stock_2015_to_2024.csv'
+    csv_file = 'nvidia_stock_1999_to_2025.csv'
 
     # 划分训练/验证/测试数据集
     train_ds = Dataset_train(root_path=data_dir, data_path=csv_file,
@@ -106,7 +107,7 @@ def main():
                 break
 
         print(f"Epoch {epoch}/{epochs} | Train MSE: {avg_train:.6f} | Val MSE: {avg_val:.6f} | LR: {optimizer.param_groups[0]['lr']:.2e}")
-        print("Example target:", y_target[0].cpu().numpy())
+        # print("Example target:", y_target[0].cpu().numpy())
 
     # 测试集滑窗评估
     embed.eval(); encoder.eval(); decoder.eval()
@@ -121,37 +122,48 @@ def main():
             pred = decoder(enc_out, dec_time)
             total_test += criterion(pred, y_target).item()
     test_mse = total_test / len(test_loader)
-    print(f"Final Test MSE: {test_mse:.6f}")
+    # print(f"Final Test MSE: {test_mse:.6f}")
+
+    save_dir = os.path.join(base_dir, os.pardir, 'Report', 'Latex', 'Image')
+    os.makedirs(save_dir, exist_ok=True)
 
     # 画出 Train 错误曲线
     plt.figure(figsize=(8,5))
     plt.plot(range(1, len(train_losses)+1), train_losses, marker='o', label='Train MSE')
-    plt.title('Train MSE over Epochs')
-    plt.xlabel('Epoch'); plt.ylabel('MSE'); plt.grid(True); plt.legend(); plt.show()
+    plt.title('Training MSE over Epochs', fontsize=14)
+    plt.xlabel('Epoch', fontsize=12)
+    plt.ylabel('MSE', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(fontsize=10)
+    save_path = os.path.join(save_dir, 'TrainingMSE.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"Image saved: {save_path}")
+    plt.show()
 
     # 未来 21 天预测与画图
-    pred_ds = Dataset_prediction(root_path=data_dir, data_path=csv_file,
-                                 size=[84,21,21], features='MS', target='close',
-                                 scale=True, timeenc=1, freq='d')
-    embed.load_state_dict(torch.load('best_model.pth')['embed'])
-    encoder.load_state_dict(torch.load('best_model.pth')['encoder'])
-    decoder.load_state_dict(torch.load('best_model.pth')['decoder'])
-    embed.eval(); encoder.eval(); decoder.eval()
-    with torch.no_grad():
-        x, _, x_mark, y_mark = next(iter(DataLoader(pred_ds, batch_size=1)))
-        x = x.float().to(device); xm = x_mark.float().to(device)
-        x_emb = embed(x, xm)
-        enc_out = encoder(x_emb)
-        dec_time = y_mark[:, -pred_len:, :].float().to(device)
-        future_pred = decoder(enc_out, dec_time).cpu().numpy().reshape(-1,1)
-        print("Raw predicted values (scaled):", future_pred[:5]) 
-        # 反归一化
-        future_price = pred_ds.inverse_transform(future_pred)
-    # 图示
-    plt.figure(figsize=(8,5))
-    plt.plot(range(1, pred_len+1), future_price, marker='o')
-    plt.title('Future 21-day Stock Price Prediction')
-    plt.xlabel('Day'); plt.ylabel('Price (USD)'); plt.grid(True); plt.show()
-
+    pred_ds = Dataset_prediction(
+        root_path=data_dir, 
+        data_path=csv_file,
+        size=[84,21,21], 
+        features='MS', 
+        target='close',
+        scale=True, 
+        timeenc=1, 
+        freq='d'
+    )
+    
+    # 调用预测函数
+    future_price = predict_and_plot(
+        data_dir=data_dir,
+        csv_file=csv_file,
+        save_dir=save_dir,
+        pred_len=pred_len,
+        device=device,
+        pred_ds=pred_ds,
+        embed=embed,
+        encoder=encoder,
+        decoder=decoder
+    )
+    
 if __name__ == '__main__':
     main()
