@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler  
 from torch.utils.data import Dataset
 
 
@@ -81,7 +81,7 @@ class Dataset_train(Dataset):
         # Fit scaler on training portion only
         if self.scale:
             train_df = df.iloc[:train_end]
-            self.scaler = StandardScaler()
+            self.scaler = MinMaxScaler()
             self.scaler.fit(train_df[data_cols].values)
         else:
             self.scaler = None
@@ -178,8 +178,10 @@ class Dataset_prediction(Dataset):
 
         # Fit scaler on training portion only
         if self.scale:
-            train_df = df.iloc[:val_end]
-            self.scaler = StandardScaler()
+            fit_days = 180
+            fit_start_date = df['date'].max() - pd.Timedelta(days=fit_days)
+            train_df = df[df['date'] >= fit_start_date]
+            self.scaler = MinMaxScaler()
             self.scaler.fit(train_df[data_cols].values)
         else:
             self.scaler = None
@@ -219,7 +221,7 @@ class Dataset_prediction(Dataset):
         if self.scale and self.scaler is not None:
             arr = data if data.ndim > 1 else data.reshape(-1,1)
             # 使用 scaler 的均值来填充其他列，防止0影响逆变换
-            full = np.tile(self.scaler.mean_, (arr.shape[0], 1))
+            full = np.tile(self.scaler.data_min_, (arr.shape[0], 1))
             full[:, -1] = arr[:, -1] if arr.shape[1] > 1 else arr.flatten()
             inv = self.scaler.inverse_transform(full)
             return inv[:, -1]

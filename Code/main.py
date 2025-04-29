@@ -40,16 +40,16 @@ def main():
                            factor=5).to(device)
     pred_len = train_ds.pred_len
     decoder = SimpleDecoder(pred_len=pred_len, d_model=d_model,
-                             n_heads=4, d_ff=4*d_model,
-                             num_layers=2, factor=5, dropout=0.1).to(device)
+                             n_heads=4, d_ff=8*d_model,
+                             num_layers=4, factor=5, dropout=0.1).to(device)
 
     # 优化器与学习率调度
     params = list(embed.parameters()) + list(encoder.parameters()) + list(decoder.parameters())
     optimizer = torch.optim.Adam(params, lr=1e-4)
     # 每个 epoch lr 缩半
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.96)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
     criterion = nn.MSELoss()
-    epochs = 80
+    epochs = 8
     early_stop_patience = 3
 
     # 日志
@@ -106,6 +106,7 @@ def main():
                 break
 
         print(f"Epoch {epoch}/{epochs} | Train MSE: {avg_train:.6f} | Val MSE: {avg_val:.6f} | LR: {optimizer.param_groups[0]['lr']:.2e}")
+        print("Example target:", y_target[0].cpu().numpy())
 
     # 测试集滑窗评估
     embed.eval(); encoder.eval(); decoder.eval()
@@ -143,6 +144,7 @@ def main():
         enc_out = encoder(x_emb)
         dec_time = y_mark[:, -pred_len:, :].float().to(device)
         future_pred = decoder(enc_out, dec_time).cpu().numpy().reshape(-1,1)
+        print("Raw predicted values (scaled):", future_pred[:5]) 
         # 反归一化
         future_price = pred_ds.inverse_transform(future_pred)
     # 图示
