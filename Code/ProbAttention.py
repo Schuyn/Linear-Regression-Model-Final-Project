@@ -47,12 +47,7 @@ class ProbAttention(nn.Module):
         M_top = M.topk(n_top, sorted=False)[1]  # (B, H, u)
 
         # 对这部分 Query 计算全量 QK
-        Q_reduce = Q[
-            :, 
-            :, 
-            M_top.view(-1),  # 把 B,H,u 维度一起拉平取索引
-            :
-        ].view(B, H, n_top, D)  # (B, H, u, D)
+        Q_reduce = torch.gather(Q, 2, M_top.unsqueeze(-1).expand(-1, -1, -1, D))
         # 全量计算相似度得分
         scores_top = torch.matmul(Q_reduce, K.transpose(-2, -1))  # (B, H, u, L_K)
 
@@ -82,14 +77,12 @@ class ProbAttention(nn.Module):
         """
         B, H, L_V, D = V.shape
         attn = torch.softmax(scores, dim=-1)  # (B, H, u, L_K)
-        # 用矩阵乘积更新对应位置
-        context[
-            :, 
-            :, 
-            index.view(-1),  # 同样拉平索引
-            :
-        ] = torch.matmul(attn, V).view(B, H, -1, D)
-        return context, attn
+        context_v = torch.matmul(attn, V)     # (B, H, u, D)
+        context_new = context.clone()
+        index_expanded = index.unsqueeze(-1).expand(-1, -1, -1, D)  # (B, H, u, D)
+        context_new.scatter_(2, index_expanded, context_v)
+        
+        return context_new, attn
 
     def forward(self, queries, keys, values, attn_mask=None):
         """

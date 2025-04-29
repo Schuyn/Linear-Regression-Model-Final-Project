@@ -4,8 +4,9 @@ date:          2025-04-28 19:31:59
 '''
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from ProbAttention import ProbAttention
+import numpy as np
+from math import sqrt
 
 class MultiHeadProbAttention(nn.Module):
     """
@@ -44,17 +45,14 @@ class MultiHeadProbAttention(nn.Module):
         V = self.proj_v(x).view(B, L, self.n_heads, self.d_head)
 
         # Apply ProbSparse Attention
-        # expects shapes (B, L, H, D)
         context, attn_weights = self.attn(Q, K, V, attn_mask)
-        # Merge heads: (B, L, H, D) -> (B, L, H*D)
+        # Merge heads: (B, L, H, D_head) -> (B, L, D)
         context = context.contiguous().view(B, L, -1)
-        out = self.dropout(self.fc_out(context))
-        return out, attn_weights
-
+        return self.dropout(self.fc_out(context)), attn_weights
 
 class PositionwiseFeedForward(nn.Module):
     """
-    Feed-forward network with two linear layers and activation.
+    Two-layer feed-forward network.
     """
     def __init__(
         self,
@@ -67,15 +65,14 @@ class PositionwiseFeedForward(nn.Module):
         self.fc1 = nn.Linear(d_model, d_ff)
         self.fc2 = nn.Linear(d_ff, d_model)
         self.dropout = nn.Dropout(dropout)
-        self.activation = F.relu if activation == "relu" else F.gelu
+        self.activation = nn.ReLU() if activation == "relu" else nn.GELU()
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.fc2(self.dropout(self.activation(self.fc1(x))))
-
 
 class ConvDistill(nn.Module):
     """
-    1D convolution + pooling for sequence length distillation.
+    1D convolution + pooling for distillation (downsampling by 2).
     """
     def __init__(self, d_model: int):
         super().__init__()
@@ -84,17 +81,15 @@ class ConvDistill(nn.Module):
         self.act = nn.ELU()
         self.pool = nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
 
-    def forward(self, x: torch.Tensor):
-        # x: (B, L, D)
-        x = x.transpose(1, 2)          # (B, D, L)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.transpose(1, 2)      # (B, D, L)
         x = self.act(self.norm(self.conv(x)))
-        x = self.pool(x)               # (B, D, L//2)
-        return x.transpose(1, 2)       # (B, L//2, D)
-
+        x = self.pool(x)           # (B, D, L//2)
+        return x.transpose(1, 2)   # (B, L//2, D)
 
 class EncoderLayer(nn.Module):
     """
-    Single Encoder layer: self-attention + feed-forward.
+    Single encoder layer: self-attention + feed-forward.
     """
     def __init__(
         self,
@@ -112,54 +107,66 @@ class EncoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None):
-        # Self-attention
         attn_out, attn_weights = self.self_attn(x, attn_mask)
         x = self.norm1(x + self.dropout(attn_out))
-        # Feed-forward
         ff_out = self.ff(x)
         x = self.norm2(x + self.dropout(ff_out))
         return x, attn_weights
 
-
-class Encoder(nn.Module):
+class EncoderStack(nn.Module):
     """
-    Stack of EncoderLayers with optional convolutional distillation.
+    Multi-branch encoder with multiple distillation levels.
+    Each branch applies `num_layers` of EncoderLayer, inserting ConvDistill
+    for the first `distill` layers accordingly.
     """
     def __init__(
         self,
         d_model: int,
         n_heads: int,
         d_ff: int,
-        num_layers: int = 3,
+        num_layers: int,
+        distill_levels: list,
         dropout: float = 0.1,
-        factor: int = 5,
-        distill: bool = True
+        factor: int = 5
     ):
         super().__init__()
-        self.layers = nn.ModuleList()
-        for i in range(num_layers):
-            # Add Encoder layer
-            self.layers.append(
-                EncoderLayer(d_model, n_heads, d_ff, dropout, factor)
-            )
-            # After each except last, optionally add distillation conv
-            if distill and i < num_layers - 1:
-                self.layers.append(ConvDistill(d_model))
+        # For each distillation level, store a list of modules (EncoderLayer or ConvDistill)
+        self.branches = nn.ModuleList()
+        for distill in distill_levels:
+            modules = nn.ModuleList()
+            for i in range(num_layers):
+                modules.append(
+                    EncoderLayer(
+                        d_model=d_model,
+                        n_heads=n_heads,
+                        d_ff=d_ff,
+                        dropout=dropout,
+                        factor=factor
+                    )
+                )
+                if i < distill:
+                    modules.append(ConvDistill(d_model))
+            self.branches.append(modules)
 
-    def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None):
+    def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None) -> torch.Tensor:
         """
         Args:
-            x: (B, L, d_model)
+            x: Tensor of shape (B, L, d_model)
+            attn_mask: Optional mask tensor
         Returns:
-            x: (B, L', d_model)
-            attns: list of attention weights from each EncoderLayer
+            Tensor of shape (B, sum_{lvl}(L // 2^lvl), d_model)
         """
-        attns = []
-        for layer in self.layers:
-            if isinstance(layer, EncoderLayer):
-                x, attn_w = layer(x, attn_mask)
-                attns.append(attn_w)
-            else:
-                # ConvDistill layer
-                x = layer(x)
-        return x, attns
+        outputs = []
+        # Apply each branch sequentially, handling tuple outputs correctly
+        for modules in self.branches:
+            x_branch = x
+            for module in modules:
+                if isinstance(module, EncoderLayer):
+                    # EncoderLayer returns (x, attn)
+                    x_branch, _ = module(x_branch, attn_mask)
+                else:
+                    # ConvDistill returns only x
+                    x_branch = module(x_branch)
+            outputs.append(x_branch)
+        # Concatenate along sequence length
+        return torch.cat(outputs, dim=1)

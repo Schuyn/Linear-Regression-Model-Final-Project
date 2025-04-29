@@ -3,9 +3,9 @@ import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-
 from DataPreprossessing import Dataset_train
-from Encoder import Encoder  # 简化版多尺度 Encoder
+from Encoder import EncoderStack
+from embed import SimpleEmbedding
 
 def main():
     # 环境与路径
@@ -32,13 +32,39 @@ def main():
         shuffle=True,
         drop_last=True
     )
-
-    # 5. 示范取一个 batch
+    
+    # 定义嵌入层：将原始特征投射到 d_model
+    c_in = dataset.data.shape[1]
+    d_model = 256
+    embed = SimpleEmbedding(c_in, d_model).to(device)  
+    
+    n_heads = 8
+    d_ff = 4 * d_model
+    encoder = EncoderStack(
+        d_model=d_model,
+        n_heads=n_heads,
+        d_ff=d_ff,
+        num_layers=3,
+        distill_levels=[0, 1, 2],
+        dropout=0.1,
+        factor=5
+    ).to(device)
+    
     for seq_x, seq_y, seq_x_mark, seq_y_mark in loader:
-        print("x shape: ", seq_x.shape)         # [B, seq_len, D]
-        print("y shape:", seq_y.shape)         # [B, label_len+pred_len, D]
-        print("X time features:", seq_x_mark.shape)   # [B, seq_len, T]
-        print("Y time features:", seq_y_mark.shape)   # [B, label_len+pred_len, T]
+        # seq_x: (B, 84, c_in), seq_x_mark: (B, 84, 3)
+        x_val  = seq_x.float().to(device)
+        x_time = seq_x_mark.float().to(device)
+        print(f"Input shape - x_val: {x_val.shape}, x_time: {x_time.shape}")
+        
+        # 嵌入
+        x_emb = embed(x_val, x_time)           # → (B, 84, d_model)
+        print(f"Embedding shape: {x_emb.shape}")
+        
+        # EncoderStack 前向
+        enc_out = encoder(x_emb)               # → (B, 84 + 42 + 21, d_model)
+
+        print("Embedding output shape: ", x_emb.shape)
+        print("EncoderStack output shape:", enc_out.shape)
         break
 
 if __name__ == '__main__':
