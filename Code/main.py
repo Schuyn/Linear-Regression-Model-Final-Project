@@ -1,18 +1,19 @@
 # main.py
 import os
+import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
-# 如果类名是 DatasetTrain，请用下面这一行；如果是 Dataset_train，请把名字改成 Dataset_train
-from DataPreprossessing import Dataset_train  
+
+from DataPreprossessing import Dataset_train
+from Encoder import Encoder  # 简化版多尺度 Encoder
 
 def main():
-    # 1. 定位到 Data 文件夹
-    code_dir = os.path.dirname(__file__)                                # .../Code
-    data_dir = os.path.abspath(os.path.join(code_dir, os.pardir, 'Data'))  # .../Data
-
-    # 2. 指定 CSV 文件名
+    # 环境与路径
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    code_dir = os.path.dirname(__file__)
+    data_dir = os.path.abspath(os.path.join(code_dir, os.pardir, 'Data'))
     csv_file = 'nvidia_stock_2015_to_2024.csv'
 
-    # 3. 创建 Dataset
     dataset = Dataset_train(
         root_path=data_dir,        # 目录到 Data 文件夹
         data_path=csv_file,        # 只写文件名
@@ -24,10 +25,10 @@ def main():
         freq='d'                   # 日频
     )
 
-    # 4. 用 DataLoader 打包
+    # 用 DataLoader 打包
     loader = DataLoader(
         dataset,
-        batch_size=32,
+        batch_size=16,
         shuffle=True,
         drop_last=True
     )
@@ -42,3 +43,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+    
+
+
