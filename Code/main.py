@@ -15,6 +15,8 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     base_dir = os.path.dirname(__file__)
     data_dir = os.path.abspath(os.path.join(base_dir, os.pardir, 'Data'))
+    result_dir = os.path.abspath(os.path.join(base_dir, os.pardir, 'Result'))
+    os.makedirs(result_dir, exist_ok=True)  # 创建 Result 目录
     csv_file = 'nvidia_stock_1999_to_2025.csv'
 
     # 划分训练/验证/测试数据集
@@ -57,6 +59,9 @@ def main():
     train_losses = []
     best_val = float('inf')
     early_count = 0
+    
+    # 修改模型保存路径
+    model_save_path = os.path.join(result_dir, 'best_model.pth')
 
     # 训练-验证循环
     for epoch in range(1, epochs+1):
@@ -99,7 +104,7 @@ def main():
             # 保存最佳模型
             torch.save({'embed': embed.state_dict(),
                         'encoder': encoder.state_dict(),
-                        'decoder': decoder.state_dict()}, 'best_model.pth')
+                        'decoder': decoder.state_dict()}, model_save_path)
         else:
             early_count += 1
             if early_count >= early_stop_patience:

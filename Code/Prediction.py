@@ -8,10 +8,20 @@ def predict_and_plot(data_dir, csv_file, save_dir, pred_len, device,
     """
     执行预测并绘制结果图表
     """
-    # 加载最佳模型
-    embed.load_state_dict(torch.load('best_model.pth')['embed'])
-    encoder.load_state_dict(torch.load('best_model.pth')['encoder'])
-    decoder.load_state_dict(torch.load('best_model.pth')['decoder'])
+    # 修改模型加载路径
+    base_dir = os.path.dirname(__file__)
+    result_dir = os.path.abspath(os.path.join(base_dir, os.pardir, 'Result'))
+    model_path = os.path.join(result_dir, 'best_model.pth')
+
+    # 加载模型
+    if os.path.exists(model_path):
+        checkpoint = torch.load(model_path)
+        embed.load_state_dict(checkpoint['embed'])
+        encoder.load_state_dict(checkpoint['encoder'])
+        decoder.load_state_dict(checkpoint['decoder'])
+        print(f"成功加载模型：{model_path}")
+    else:
+        print(f"未找到模型文件：{model_path}")
     
     # 设置为评估模式
     embed.eval(); encoder.eval(); decoder.eval()
