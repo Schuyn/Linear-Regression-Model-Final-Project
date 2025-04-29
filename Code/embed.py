@@ -35,3 +35,17 @@ class SimpleEmbedding(nn.Module):
         t = self.time_proj(x_time)       # (B, L, d_model)
         # Combine and dropout
         return self.dropout(v + t)
+
+from embed import PositionalEmbedding
+class RichEmbedding(nn.Module):
+    def __init__(self, c_in, d_model, dropout=0.1):
+        super().__init__()
+        self.value_proj = nn.Linear(c_in, d_model)
+        self.time_proj  = nn.Linear(3, d_model)
+        self.pos_emb    = PositionalEmbedding(d_model)
+        self.dropout    = nn.Dropout(dropout)
+    def forward(self, x_val, x_time):
+        v = self.value_proj(x_val)
+        t = self.time_proj(x_time)
+        p = self.pos_emb(x_val)           # (1, L, d_model) 切片到 (B, L, d_model)
+        return self.dropout(v + t + p)

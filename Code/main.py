@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from DataPreprossessing import Dataset_train
 from Encoder import EncoderStack
 from embed import SimpleEmbedding
+from Decoder import SimpleDecoder
 
 def main():
     # 环境与路径
@@ -50,22 +51,59 @@ def main():
         factor=5
     ).to(device)
     
-    for seq_x, seq_y, seq_x_mark, seq_y_mark in loader:
-        # seq_x: (B, 84, c_in), seq_x_mark: (B, 84, 3)
-        x_val  = seq_x.float().to(device)
-        x_time = seq_x_mark.float().to(device)
-        print(f"Input shape - x_val: {x_val.shape}, x_time: {x_time.shape}")
-        
-        # 嵌入
-        x_emb = embed(x_val, x_time)           # → (B, 84, d_model)
-        print(f"Embedding shape: {x_emb.shape}")
-        
-        # EncoderStack 前向
-        enc_out = encoder(x_emb)               # → (B, 84 + 42 + 21, d_model)
+    pred_len = dataset.pred_len
+    decoder = SimpleDecoder(
+        pred_len=pred_len,
+        d_model=d_model,
+        n_heads=n_heads,
+        d_ff=d_ff,
+        num_layers=2,
+        factor=5,
+        dropout=0.1
+    ).to(device)
+    
 
-        print("Embedding output shape: ", x_emb.shape)
-        print("EncoderStack output shape:", enc_out.shape)
-        break
+    # 优化器和损失函数
+    params = list(embed.parameters()) + list(encoder.parameters()) + list(decoder.parameters())
+    optimizer = torch.optim.Adam(params, lr=1e-3)
+    criterion = torch.nn.MSELoss()
+    epochs = 20
+
+    # 训练循环
+    for epoch in range(1, epochs + 1):
+        embed.train(); encoder.train(); decoder.train()
+        total_loss = 0.0
+        for seq_x, seq_y, seq_x_mark, seq_y_mark in loader:
+            x_val = seq_x.float().to(device)                    # (B,84,c_in)
+            x_time = seq_x_mark.float().to(device)               # (B,84,3)
+            # 嵌入 + 编码
+            x_emb = embed(x_val, x_time)                         # (B,84,d_model)
+            enc_out = encoder(x_emb)                             # (B,147,d_model)
+
+            # 解码：取未来时间特征
+            x_time_dec = seq_y_mark[:, -pred_len:, :].float().to(device)  # (B,21,3)
+            pred = decoder(enc_out, x_time_dec)                  # (B,21)
+
+            # 真实标签：收盘价为最后一列
+            true_y = seq_y[:, -pred_len:, -1].float().to(device) # (B,21)
+
+            loss = criterion(pred, true_y)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+
+        avg_loss = total_loss / len(loader)
+        print(f"Epoch {epoch}/{epochs}, Loss: {avg_loss:.6f}")
+
+    # 保存模型
+    torch.save({
+        'embed': embed.state_dict(),
+        'encoder': encoder.state_dict(),
+        'decoder': decoder.state_dict(),
+    }, 'model_epoch.pth')
+    print("train completed! see more in: model_epoch.pth")
+
 
 if __name__ == '__main__':
     main()

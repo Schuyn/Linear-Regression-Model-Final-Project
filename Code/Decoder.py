@@ -6,42 +6,6 @@ import torch
 import torch.nn as nn
 from ProbAttention import ProbAttention
 
-class MultiHeadSelfAttention(nn.Module):
-    """
-    Multi-head self-attention using ProbSparse Attention.
-    """
-    def __init__(self, d_model: int, n_heads: int, factor: int = 5, dropout: float = 0.1):
-        super().__init__()
-        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
-        self.n_heads = n_heads
-        self.d_head = d_model // n_heads
-        # Projections for Q, K, V
-        self.q_proj = nn.Linear(d_model, d_model)
-        self.k_proj = nn.Linear(d_model, d_model)
-        self.v_proj = nn.Linear(d_model, d_model)
-        # ProbSparse attention core
-        self.attn = ProbAttention(
-            mask_flag=True,
-            factor=factor,
-            scale=None,
-            attention_dropout=dropout,
-            output_attention=False
-        )
-        self.fc_out = nn.Linear(d_model, d_model)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
-        B, L, D = x.shape
-        # Linear projections and split into heads
-        Q = self.q_proj(x).view(B, L, self.n_heads, self.d_head)
-        K = self.k_proj(x).view(B, L, self.n_heads, self.d_head)
-        V = self.v_proj(x).view(B, L, self.n_heads, self.d_head)
-        # ProbSparse attention
-        context, _ = self.attn(Q, K, V, mask)
-        # Merge heads and output projection
-        out = context.contiguous().view(B, L, D)
-        return self.dropout(self.fc_out(out))
-
 class MultiHeadCrossAttention(nn.Module):
     """
     Multi-head cross-attention: queries from decoder, keys/values from encoder.
@@ -54,7 +18,6 @@ class MultiHeadCrossAttention(nn.Module):
         self.q_proj = nn.Linear(d_model, d_model)
         self.k_proj = nn.Linear(d_model, d_model)
         self.v_proj = nn.Linear(d_model, d_model)
-        # mask_flag=False for cross-attention (full context)
         self.attn = ProbAttention(
             mask_flag=False,
             factor=factor,
@@ -68,8 +31,7 @@ class MultiHeadCrossAttention(nn.Module):
     def forward(
         self,
         x: torch.Tensor,       # decoder queries (B, L_dec, D)
-        context: torch.Tensor, # encoder keys/values (B, L_enc, D)
-        mask: torch.Tensor = None
+        context: torch.Tensor  # encoder keys/values (B, L_enc, D)
     ) -> torch.Tensor:
         B, L_dec, D = x.shape
         L_enc = context.size(1)
@@ -77,8 +39,8 @@ class MultiHeadCrossAttention(nn.Module):
         Q = self.q_proj(x).view(B, L_dec, self.n_heads, self.d_head)
         K = self.k_proj(context).view(B, L_enc, self.n_heads, self.d_head)
         V = self.v_proj(context).view(B, L_enc, self.n_heads, self.d_head)
-        # ProbSparse cross-attention
-        context_out, _ = self.attn(Q, K, V, mask)
+        # Cross-attention
+        context_out, _ = self.attn(Q, K, V, None)
         out = context_out.contiguous().view(B, L_dec, D)
         return self.dropout(self.fc_out(out))
 
@@ -100,70 +62,71 @@ class PositionwiseFeedForward(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.fc2(self.dropout(torch.relu(self.fc1(x))))
 
-class DecoderLayer(nn.Module):
+class SimpleDecoder(nn.Module):
     """
-    Single decoder layer: self-attention, cross-attention, and feed-forward.
-    """
-    def __init__(
-        self,
-        d_model: int,
-        n_heads: int,
-        d_ff: int,
-        dropout: float = 0.1,
-        factor: int = 5
-    ):
-        super().__init__()
-        self.self_attn = MultiHeadSelfAttention(d_model, n_heads, factor, dropout)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.cross_attn = MultiHeadCrossAttention(d_model, n_heads, factor, dropout)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.ff = PositionwiseFeedForward(d_model, d_ff, dropout)
-        self.norm3 = nn.LayerNorm(d_model)
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        enc_out: torch.Tensor,
-        self_mask: torch.Tensor = None,
-        cross_mask: torch.Tensor = None
-    ) -> torch.Tensor:
-        # 1) Self-attention with residual
-        x2 = self.self_attn(x, self_mask)
-        x = self.norm1(x + x2)
-        # 2) Cross-attention with residual
-        x2 = self.cross_attn(x, enc_out, cross_mask)
-        x = self.norm2(x + x2)
-        # 3) Feed-forward with residual
-        x2 = self.ff(x)
-        x = self.norm3(x + x2)
-        return x
-
-class Decoder(nn.Module):
-    """
-    Stack of DecoderLayer(s).
+    Non-autoregressive decoder with a self-attention among queries,
+    followed by multiple cross-attention + feed-forward layers.
+    Uses time feature embedding for future steps.
     """
     def __init__(
         self,
+        pred_len: int,
         d_model: int,
         n_heads: int,
         d_ff: int,
         num_layers: int = 2,
-        dropout: float = 0.1,
-        factor: int = 5
+        factor: int = 5,
+        dropout: float = 0.1
     ):
         super().__init__()
-        self.layers = nn.ModuleList([
-            DecoderLayer(d_model, n_heads, d_ff, dropout, factor)
-            for _ in range(num_layers)
-        ])
+        self.pred_len = pred_len
+        # Learned query embeddings for future positions
+        self.query_embed = nn.Parameter(torch.randn(pred_len, d_model))
+        # Time features projection (month, day, weekday)
+        self.time_proj = nn.Linear(3, d_model)
+        # Self-attention among queries (full, no mask)
+        self.self_attn = MultiHeadCrossAttention(d_model, n_heads, factor, dropout)
+        self.norm0 = nn.LayerNorm(d_model)
+        # Cross-attention + feed-forward layers
+        self.layers = nn.ModuleList()
+        for _ in range(num_layers):
+            self.layers.append(nn.ModuleDict({
+                'cross_attn': MultiHeadCrossAttention(d_model, n_heads, factor, dropout),
+                'norm1': nn.LayerNorm(d_model),
+                'ff': PositionwiseFeedForward(d_model, d_ff, dropout),
+                'norm2': nn.LayerNorm(d_model)
+            }))
+        self.dropout = nn.Dropout(dropout)
+        # Final projection to scalar
+        self.proj = nn.Linear(d_model, 1)
 
     def forward(
         self,
-        x: torch.Tensor,
         enc_out: torch.Tensor,
-        self_mask: torch.Tensor = None,
-        cross_mask: torch.Tensor = None
+        x_time_dec: torch.Tensor
     ) -> torch.Tensor:
+        """
+        Args:
+            enc_out: Encoder output, shape (B, L_enc, d_model)
+            x_time_dec: Time features for future steps, shape (B, pred_len, 3)
+        Returns:
+            Tensor of shape (B, pred_len)
+        """
+        B = enc_out.size(0)
+        # Expand query embeddings to batch
+        queries = self.query_embed.unsqueeze(0).expand(B, -1, -1)
+        # Project time features and add
+        t = self.time_proj(x_time_dec)
+        x = queries + t
+        # Self-attention among queries
+        x2 = self.self_attn(x, x)
+        x = self.norm0(x + self.dropout(x2))
+        # Cross-attention + feed-forward layers
         for layer in self.layers:
-            x = layer(x, enc_out, self_mask, cross_mask)
-        return x
+            x2 = layer['cross_attn'](x, enc_out)
+            x = layer['norm1'](x + self.dropout(x2))
+            x2 = layer['ff'](x)
+            x = layer['norm2'](x + self.dropout(x2))
+        # Project to scalar predictions
+        pred = self.proj(x).squeeze(-1)
+        return pred
