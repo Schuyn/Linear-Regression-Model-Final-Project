@@ -6,27 +6,27 @@ from torch.utils.data import DataLoader
 def predict_and_plot(data_dir, csv_file, save_dir, pred_len, device, 
                         pred_ds, embed, encoder, decoder):
     """
-    执行预测并绘制结果图表
+   Perform prediction and plot the result chart
     """
-    # 修改模型加载路径
+    # Modify the model loading path
     base_dir = os.path.dirname(__file__)
     result_dir = os.path.abspath(os.path.join(base_dir, os.pardir, 'Result'))
     model_path = os.path.join(result_dir, 'best_model.pth')
 
-    # 加载模型
+    # Load the Model
     if os.path.exists(model_path):
         checkpoint = torch.load(model_path)
         embed.load_state_dict(checkpoint['embed'])
         encoder.load_state_dict(checkpoint['encoder'])
         decoder.load_state_dict(checkpoint['decoder'])
-        print(f"成功加载模型：{model_path}")
+        print(f"Load successfully：{model_path}")
     else:
-        print(f"未找到模型文件：{model_path}")
+        print(f"Unanble to laod：{model_path}")
     
-    # 设置为评估模式
+    # Set to evaluation mode
     embed.eval(); encoder.eval(); decoder.eval()
     
-    # 预测
+    # Prediction
     with torch.no_grad():
         x, _, x_mark, y_mark = next(iter(DataLoader(pred_ds, batch_size=1)))
         x = x.float().to(device); xm = x_mark.float().to(device)
@@ -34,17 +34,17 @@ def predict_and_plot(data_dir, csv_file, save_dir, pred_len, device,
         enc_out = encoder(x_emb)
         dec_time = y_mark[:, -pred_len:, :].float().to(device)
         future_pred = decoder(enc_out, dec_time).cpu().numpy().reshape(-1,1)
-        # print("预测值 (归一化后):", future_pred[:5]) 
+        # print("Predicted values (after normalization):", future_pred[:5]) 
         
-        # 反归一化
+        # Denormalization 
         future_price = pred_ds.inverse_transform(future_pred).reshape(-1)
     
-    # 绘图
+    # Plot
     plt.figure(figsize=(12,6))
     days = range(1, pred_len+1)
     plt.plot(days, future_price, marker='o', linewidth=2, markersize=8)
     
-    # 添加数值标注
+    # Add value annotations
     for i, price in enumerate(future_price):
         plt.annotate(f'{price:.2f}', 
                     xy=(days[i], price),
