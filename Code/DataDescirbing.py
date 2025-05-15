@@ -34,11 +34,11 @@ def plot_close_volume(df_plot, title, save_name):
     # --- Automatic time axis formatting ---
     date_span = (df_plot['Date'].max() - df_plot['Date'].min()).days
     if date_span <= 60:
-        # 数据少于60天，每天一个刻度
+        # If the data spans fewer than 60 days, use daily ticks
         ax1.xaxis.set_major_locator(mdates.DayLocator(interval=1))
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
     else:
-        # 数据跨度大，3个月一个刻度
+        # Large data span: one tick every 3 months
         ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=8))
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
     fig.autofmt_xdate()
