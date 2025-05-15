@@ -12,7 +12,7 @@ file_path = os.path.join(data_dir, csv_file)
 df = pd.read_csv(file_path, parse_dates=['Date'])
 df.sort_values('Date', inplace=True)
 
-assert all(col in df.columns for col in ['Date', 'Close', 'Volume']), "数据中缺少必要字段"
+assert all(col in df.columns for col in ['Date', 'Close', 'Volume']), "The data is missing required fields"
 
 # ===Save Path ===
 save_dir = r"C:\Users\Schuyn\Desktop\文件\GitHub\Linear-Regression-Model-Final-Project\Report\Latex\Image"
