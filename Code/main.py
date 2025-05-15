@@ -11,7 +11,7 @@ from Decoder import SimpleDecoder
 from Prediction import predict_and_plot
 
 def main():
-    # 环境配置及路径
+    # Environment setup and paths
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     base_dir = os.path.dirname(__file__)
     data_dir = os.path.abspath(os.path.join(base_dir, os.pardir, 'Data'))
@@ -19,7 +19,7 @@ def main():
     os.makedirs(result_dir, exist_ok=True)  # 创建 Result 目录
     csv_file = 'nvidia_stock_1999_to_2025.csv'
 
-    # 划分训练/验证/测试数据集
+    # Split the dataset into training, validation, and test sets
     train_ds = Dataset_train(root_path=data_dir, data_path=csv_file,
                              size=[84,21,21], features='MS', target='close',
                              scale=True, timeenc=1, freq='d', split='train')
@@ -34,7 +34,7 @@ def main():
     val_loader   = DataLoader(val_ds,   batch_size=32, shuffle=False, drop_last=False)
     test_loader  = DataLoader(test_ds,  batch_size=32, shuffle=False, drop_last=False)
 
-    # 模型构建
+    # Model construction
     c_in = train_ds.data.shape[1]
     d_model = 256
     embed = SimpleEmbedding(c_in, d_model).to(device)
@@ -46,7 +46,7 @@ def main():
                              n_heads=4, d_ff=8*d_model,
                              num_layers=4, factor=5, dropout=0.1).to(device)
 
-    # 优化器与学习率调度
+    # Optimizer and learning rate scheduler
     params = list(embed.parameters()) + list(encoder.parameters()) + list(decoder.parameters())
     optimizer = torch.optim.Adam(params, lr=1e-4)
     # 每个 epoch lr 缩半
@@ -55,23 +55,23 @@ def main():
     epochs = 8
     early_stop_patience = 3
 
-    # 日志
+    # Log / Logs
     train_losses = []
     best_val = float('inf')
     early_count = 0
     
-    # 修改模型保存路径
+    # Modify the model save path
     model_save_path = os.path.join(result_dir, 'best_model.pth')
 
-    # 训练-验证循环
+    # Training-validation loop
     for epoch in range(1, epochs+1):
-        # 训练
+        # Training
         embed.train(); encoder.train(); decoder.train()
         total_train = 0.0
         for x, y, x_mark, y_mark in train_loader:
             x = x.float().to(device); xm = x_mark.float().to(device)
             y_target = y[:, -pred_len:, -1].float().to(device)
-            # 前向
+            # Foward
             x_emb = embed(x, xm)
             enc_out = encoder(x_emb)
             dec_time = y_mark[:, -pred_len:, :].float().to(device)
@@ -82,7 +82,7 @@ def main():
         avg_train = total_train / len(train_loader)
         train_losses.append(avg_train)
 
-        # 验证
+        # Testing
         embed.eval(); encoder.eval(); decoder.eval()
         total_val = 0.0
         with torch.no_grad():
@@ -96,12 +96,12 @@ def main():
                 total_val += criterion(pred, y_target).item()
         avg_val = total_val / len(val_loader)
 
-        # 学习率更新 & 早停检查
+        # Learning rate update & early stopping check
         scheduler.step()
         if avg_val < best_val:
             best_val = avg_val
             early_count = 0
-            # 保存最佳模型
+            #Save the best model
             torch.save({'embed': embed.state_dict(),
                         'encoder': encoder.state_dict(),
                         'decoder': decoder.state_dict()}, model_save_path)
@@ -114,7 +114,7 @@ def main():
         print(f"Epoch {epoch}/{epochs} | Train MSE: {avg_train:.6f} | Val MSE: {avg_val:.6f} | LR: {optimizer.param_groups[0]['lr']:.2e}")
         # print("Example target:", y_target[0].cpu().numpy())
 
-    # 测试集滑窗评估
+    # Sliding window evaluation on the test set
     embed.eval(); encoder.eval(); decoder.eval()
     total_test = 0.0
     with torch.no_grad():
@@ -132,7 +132,7 @@ def main():
     save_dir = os.path.join(base_dir, os.pardir, 'Report', 'Latex', 'Image')
     os.makedirs(save_dir, exist_ok=True)
 
-    # 画出 Train 错误曲线
+    # Plot the training error curve
     plt.figure(figsize=(8,5))
     plt.plot(range(1, len(train_losses)+1), train_losses, marker='o', label='Train MSE')
     plt.title('Training MSE over Epochs', fontsize=14)
@@ -145,7 +145,7 @@ def main():
     print(f"Image saved: {save_path}")
     plt.show()
 
-    # 未来 21 天预测与画图
+    # Forecast the next 21 days and plot the results
     pred_ds = Dataset_prediction(
         root_path=data_dir, 
         data_path=csv_file,
@@ -157,7 +157,7 @@ def main():
         freq='d'
     )
     
-    # 调用预测函数
+    # Call the prediction function
     future_price = predict_and_plot(
         data_dir=data_dir,
         csv_file=csv_file,
